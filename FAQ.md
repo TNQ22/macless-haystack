@@ -17,8 +17,11 @@ In the folder you'll find the configuration (config.ini), the authentication (au
 You can check out the logs with:
 
 ```bash
-docker logs -f macless-haystack
 docker logs -f anisette
+```
+
+```bash
+docker logs -f macless-haystack
 ```
 
 or restart docker in interactive mode:
