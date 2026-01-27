@@ -18,6 +18,7 @@ You can check out the logs with:
 
 ```bash
 docker logs -f macless-haystack
+docker logs -f anisette
 ```
 
 or restart docker in interactive mode:
