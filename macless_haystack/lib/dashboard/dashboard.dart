@@ -1,4 +1,6 @@
+
 import 'package:flutter/material.dart';
+import 'package:flutter_settings_screens/flutter_settings_screens.dart';
 import 'package:logger/logger.dart';
 import 'package:macless_haystack/item_management/refresh_action.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +11,8 @@ import 'package:macless_haystack/item_management/new_item_action.dart';
 import 'package:macless_haystack/location/location_model.dart';
 import 'package:macless_haystack/preferences/preferences_page.dart';
 import 'package:macless_haystack/preferences/user_preferences_model.dart';
+
+import '../accessory/accessory_model.dart';
 
 class Dashboard extends StatefulWidget {
   /// Displays the layout for the mobile view of the app.
@@ -31,11 +35,14 @@ class _DashboardState extends State<Dashboard> {
       'title': 'My Accessories',
       'body': (ctx) => AccessoryMapListVertical(
             loadLocationUpdates: loadLocationUpdates,
+            saveOrderUpdatesCallback: saveAccessories,
           ),
       'icon': Icons.place,
       'label': 'Map',
       'actionButton': (ctx) => RefreshAction(
-            callback: loadLocationUpdates,
+            callback: () async {
+              await loadLocationUpdates(null);
+            },
           ),
     },
     {
@@ -60,28 +67,38 @@ class _DashboardState extends State<Dashboard> {
     if (!locationPreferenceKnown || locationAccessWanted) {
       locationModel.requestLocationUpdates();
     }
-
     // Load new location reports on app start
-    loadLocationUpdates();
+    if (Settings.getValue<bool>(fetchLocationOnStartupKey,
+        defaultValue: true)!) {
+      loadLocationUpdates(null);
+    }
   }
 
+  var logger = Logger(
+    printer: PrettyPrinter(),
+  );
+
   /// Fetch location updates for all accessories.
-  Future<void> loadLocationUpdates() async {
+  Future<void> loadLocationUpdates(Accessory? accessory) async {
     var accessoryRegistry =
         Provider.of<AccessoryRegistry>(context, listen: false);
-
-    var logger = Logger(
-      printer: PrettyPrinter(),
-    );
-
+    var inactive = 0;
+    Iterable<Accessory> accessories;
+    if (accessory == null) {
+      accessories = accessoryRegistry.accessories;
+      inactive = accessories.where((a) => !a.isActive).length;
+    } else {
+      accessories = [accessory];
+    }
     try {
-      var count = await accessoryRegistry.loadLocationReports();
-      if (mounted && accessoryRegistry.accessories.isNotEmpty) {
+      var count = await accessoryRegistry
+          .loadLocationReports(accessories.where((a) => a.isActive));
+      if (mounted && accessories.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Theme.of(context).colorScheme.primary,
             content: Text(
-              'Fetched $count location(s)',
+              'Fetched $count location(s).${inactive > 0 ? '$inactive inactive accessories skipped' : ''}',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onPrimary,
               ),
@@ -91,17 +108,19 @@ class _DashboardState extends State<Dashboard> {
       }
     } catch (e, stacktrace) {
       logger.e('Error on fetching', error: e, stackTrace: stacktrace);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Theme.of(context).colorScheme.error,
-          content: Text(
-            'Could not find location reports. Try again later. Error: ${e.toString()}',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onError,
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            content: Text(
+              'Could not find location reports. Try again later. Error: ${e.toString()}',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onError,
+              ),
             ),
           ),
-        ),
-      );
+        );
+      }
     }
   }
 
@@ -118,35 +137,41 @@ class _DashboardState extends State<Dashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Accessories'),
-        actions: <Widget>[
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const PreferencesPage()),
-              );
-            },
-            icon: const Icon(Icons.settings),
-          ),
-        ],
-      ),
-      body: _tabs[_selectedIndex]['body'](context),
-      bottomNavigationBar: BottomNavigationBar(
-        items: _tabs
-            .map((tab) => BottomNavigationBarItem(
-                  icon: Icon(tab['icon']),
-                  label: tab['label'],
-                ))
-            .toList(),
-        currentIndex: _selectedIndex,
-        unselectedItemColor: Theme.of(context).secondaryHeaderColor,
-        onTap: _onItemTapped,
-      ),
-      floatingActionButton:
-          _tabs[_selectedIndex]['actionButton']?.call(context),
-    );
+        appBar: AppBar(
+          title: const Text('My Accessories'),
+          actions: <Widget>[
+            IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const PreferencesPage()),
+                );
+              },
+              icon: const Icon(Icons.settings),
+            ),
+          ],
+        ),
+        body: _tabs[_selectedIndex]['body'](context),
+        bottomNavigationBar: BottomNavigationBar(
+          items: _tabs
+              .map((tab) => BottomNavigationBarItem(
+                    icon: Icon(tab['icon']),
+                    label: tab['label'],
+                  ))
+              .toList(),
+          currentIndex: _selectedIndex,
+          unselectedItemColor: Theme.of(context).secondaryHeaderColor,
+          onTap: _onItemTapped,
+        ),
+        floatingActionButton:
+            _tabs[_selectedIndex]['actionButton']?.call(context),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endDocked);
+  }
+
+  Future<void> saveAccessories(List<Accessory> accessories) async {
+    var accessoryRegistry =
+        Provider.of<AccessoryRegistry>(context, listen: false);
+    accessoryRegistry.saveOrderUpdates(accessories);
   }
 }

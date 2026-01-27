@@ -6,7 +6,6 @@ import 'package:macless_haystack/accessory/accessory_model.dart';
 import 'package:macless_haystack/accessory/accessory_registry.dart';
 import 'package:macless_haystack/location/location_model.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 
 class AccessoryMap extends StatefulWidget {
   final MapController? mapController;
@@ -75,6 +74,7 @@ class _AccessoryMapState extends State<AccessoryMap> {
     }
 
     List<LatLng> accessoryPoints = accessories
+        .where((accessory) => accessory.isActive)
         .where((accessory) => accessory.lastLocation != null)
         .map((accessory) => accessory.lastLocation!)
         .toList();
@@ -102,14 +102,17 @@ class _AccessoryMapState extends State<AccessoryMap> {
             initialZoom: 13.0,
             backgroundColor: Theme.of(context).colorScheme.surface,
             interactionOptions: const InteractionOptions(
+                enableMultiFingerGestureRace: true,
                 flags: InteractiveFlag.pinchZoom |
                     InteractiveFlag.drag |
                     InteractiveFlag.doubleTapZoom |
+                    InteractiveFlag.scrollWheelZoom |
                     InteractiveFlag.flingAnimation |
-                    InteractiveFlag.pinchMove)),
+                    InteractiveFlag.pinchMove |
+                    InteractiveFlag.pinchZoom)),
         children: [
           TileLayer(
-            tileProvider: CancellableNetworkTileProvider(),
+            tileProvider: NetworkTileProvider(),
             tileBuilder: (context, child, tile) {
               var isDark = (Theme.of(context).brightness == Brightness.dark);
               return isDark
@@ -141,10 +144,12 @@ class _AccessoryMapState extends State<AccessoryMap> {
                   : child;
             },
             urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            userAgentPackageName: 'de.dchristl.headlesshaystack',
           ),
           MarkerLayer(
             markers: [
               ...accessories
+                  .where((accessory) => accessory.isActive)
                   .where((accessory) => accessory.lastLocation != null)
                   .map((accessory) => Marker(
                         rotate: true,

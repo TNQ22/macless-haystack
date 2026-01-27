@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
 import 'package:pointycastle/ecc/api.dart';
 
@@ -8,6 +10,8 @@ import 'package:pointycastle/ecc/api.dart';
 import 'package:pointycastle/src/utils.dart' as pc_utils;
 import 'package:macless_haystack/findMy/find_my_controller.dart';
 import 'package:macless_haystack/findMy/decrypt_reports.dart';
+import 'package:macless_haystack/accessory/accessory_battery.dart';
+
 
 /// Represents a decrypted FindMyReport.
 class FindMyLocationReport {
@@ -21,6 +25,7 @@ class FindMyLocationReport {
   DateTime? published;
   DateTime? timestamp;
   int? confidence;
+  AccessoryBatteryStatus? batteryStatus;
   dynamic result;
 
   String? base64privateKey;
@@ -29,11 +34,11 @@ class FindMyLocationReport {
   String? hash;
 
   FindMyLocationReport(this.latitude, this.longitude, this.accuracy,
-      this.published, this.timestamp, this.confidence);
+      this.published, this.timestamp, this.confidence, this.batteryStatus);
 
   FindMyLocationReport.withHash(
       this.latitude, this.longitude, this.timestamp, this.hash) {
-    accuracy = 0;
+    accuracy = 50;
   }
 
   FindMyLocationReport.decrypted(this.result, this.base64privateKey, this.id) {
@@ -55,8 +60,6 @@ class FindMyLocationReport {
       await Future.delayed(const Duration(
           milliseconds: 1)); //Is needed otherwise is executed synchron
       if (isEncrypted()) {
-        logger.d(
-            'Decrypting report with private key of ${getId()!.substring(0, 4)}');
         final unixTimestampInMillis = result["datePublished"];
         final datePublished =
             DateTime.fromMillisecondsSinceEpoch(unixTimestampInMillis);
@@ -73,6 +76,7 @@ class FindMyLocationReport {
         confidence = decryptedReport.confidence;
         result = null;
         base64privateKey = null;
+        batteryStatus = decryptedReport.batteryStatus;
       }
     }
   }

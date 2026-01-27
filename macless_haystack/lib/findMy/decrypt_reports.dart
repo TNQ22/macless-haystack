@@ -5,18 +5,24 @@ import 'package:pointycastle/export.dart';
 // ignore: implementation_imports
 import 'package:pointycastle/src/utils.dart' as pc_utils;
 import 'package:macless_haystack/findMy/models.dart';
+import 'package:macless_haystack/accessory/accessory_battery.dart';
 
 class DecryptReports {
   /// Decrypts a given [FindMyReport] with the given private key.
   static Future<FindMyLocationReport> decryptReport(
       FindMyReport report, Uint8List key) async {
     final curveDomainParam = ECCurve_secp224r1();
+    var payloadData = report.payload;
+    if (payloadData.length > 88) {
+      final modifiedData = Uint8List(payloadData.length - 1);
+      modifiedData.setRange(0, 4, payloadData);
+      modifiedData.setRange(4, modifiedData.length, payloadData, 5);
+      payloadData = modifiedData;
+    }
 
-    final payloadData = report.payload;
-    final ephemeralKeyBytes = payloadData.sublist(
-        payloadData.length - 16 - 10 - 57, payloadData.length - 16 - 10);
-    final encData = payloadData.sublist(payloadData.length - 16 - 10, payloadData.length - 16);
-    final tag = payloadData.sublist(payloadData.length - 16, payloadData.length);
+    final ephemeralKeyBytes = payloadData.sublist(5, 62);
+    final encData = payloadData.sublist(62, 72);
+    final tag = payloadData.sublist(72, payloadData.length);
 
     _decodeTimeAndConfidence(payloadData, report);
 
@@ -52,10 +58,14 @@ class DecryptReports {
   static Uint8List _ecdh(
       ECPublicKey ephemeralPublicKey, ECPrivateKey privateKey) {
     final sharedKey = ephemeralPublicKey.Q! * privateKey.d;
-    final sharedKeyBytes =
-        pc_utils.encodeBigIntAsUnsigned(sharedKey!.x!.toBigInteger()!);
 
-    return sharedKeyBytes;
+    final bytes = sharedKey!.x!
+        .toBigInteger()!
+        .toUnsigned(28 * 8)
+        .toRadixString(16)
+        .padLeft(28 * 2, '0');
+    return Uint8List.fromList(List.generate(
+        28, (i) => int.parse(bytes.substring(i * 2, i * 2 + 2), radix: 16)));
   }
 
   /// Decodes the raw decrypted payload and constructs and returns
@@ -65,12 +75,40 @@ class DecryptReports {
     final latitude = payload.buffer.asByteData(0, 4).getUint32(0, Endian.big);
     final longitude = payload.buffer.asByteData(4, 4).getUint32(0, Endian.big);
     final accuracy = payload.buffer.asByteData(8, 1).getUint8(0);
+    final status = payload.buffer.asByteData(9, 1).getUint8(0);
 
+    AccessoryBatteryStatus? batteryStatus;
+    //STATUS_FLAG_BATTERY_UPDATES_SUPPORT is set (macless firmware) or status is not zero (pix firmware)
+    if (status & 00100000 != 0 || status > 0) {
+      switch (status >> 6) {
+        // get highest 2 bits
+        case 0:
+          batteryStatus = AccessoryBatteryStatus.ok;
+          break;
+        case 1:
+          batteryStatus = AccessoryBatteryStatus.medium;
+          break;
+        case 2:
+          batteryStatus = AccessoryBatteryStatus.low;
+          break;
+        case 3:
+          batteryStatus = AccessoryBatteryStatus.criticalLow;
+          break;
+        default:
+          batteryStatus = null;
+      }
+    }
     final latitudeDec = latitude / 10000000.0;
     final longitudeDec = longitude / 10000000.0;
 
-    return FindMyLocationReport(latitudeDec, longitudeDec, accuracy,
-        report.datePublished, report.timestamp, report.confidence);
+    return FindMyLocationReport(
+        latitudeDec,
+        longitudeDec,
+        accuracy,
+        report.datePublished,
+        report.timestamp,
+        report.confidence,
+        batteryStatus);
   }
 
   /// Decrypts the given cipher text with the key data using an AES-GCM block cipher.

@@ -11,7 +11,7 @@ import 'package:flutter_settings_screens/flutter_settings_screens.dart';
 import 'package:macless_haystack/preferences/user_preferences_model.dart';
 
 const accessoryStorageKey = 'ACCESSORIES';
-const historStorageKey = 'HISTORY';
+const historyStorageKey = 'HISTORY';
 
 class AccessoryRegistry extends ChangeNotifier {
   var _storage = const FlutterSecureStorage();
@@ -36,7 +36,14 @@ class AccessoryRegistry extends ChangeNotifier {
   Future<void> loadAccessories() async {
     loading = true;
 
-    String? serialized = await _storage.read(key: accessoryStorageKey);
+    String? serialized;
+
+    try {
+      serialized = await _storage.read(key: accessoryStorageKey);
+    } catch (e) {
+      serialized = null;
+    }
+    
     if (serialized != null) {
       List accessoryJson = json.decode(serialized);
       List<Accessory> loadedAccessories =
@@ -61,7 +68,7 @@ class AccessoryRegistry extends ChangeNotifier {
   }
 
   Future<void> loadHistory() async {
-    String? history = await _storage.read(key: historStorageKey);
+    String? history = await _storage.read(key: historyStorageKey);
     if (history != null) {
       Map<String, dynamic> jsonDecoded = jsonDecode(history);
       for (var item in _accessories) {
@@ -74,11 +81,11 @@ class AccessoryRegistry extends ChangeNotifier {
   }
 
   /// Fetches new location reports and matches them to their accessory.
-  Future<int> loadLocationReports() async {
+  Future<int> loadLocationReports(
+      Iterable<Accessory> currentAccessories) async {
     List<Future<List<FindMyLocationReport>>> runningLocationRequests = [];
 
     // request location updates for all accessories simultaneously
-    List<Accessory> currentAccessories = accessories;
     String? url = Settings.getValue<String>(endpointUrl);
     for (var i = 0; i < currentAccessories.length; i++) {
       var accessory = currentAccessories.elementAt(i);
@@ -112,12 +119,17 @@ class AccessoryRegistry extends ChangeNotifier {
       if (reports.where((element) => !element.isEncrypted()).isNotEmpty) {
         var lastReport =
             reports.where((element) => !element.isEncrypted()).first;
-        var reportDate = lastReport.timestamp ?? lastReport.published;
+        var reportDate = (lastReport.timestamp ?? lastReport.published) ??
+            DateTime.fromMicrosecondsSinceEpoch(0);
         if (accessory.datePublished != null &&
-            reportDate!.isAfter(accessory.datePublished!)) {
+            reportDate.isAfter(accessory.datePublished!)) {
           accessory.datePublished = reportDate;
           accessory.lastLocation =
               LatLng(lastReport.latitude!, lastReport.longitude!);
+
+          // Update last battery status
+          accessory.lastBatteryStatus = lastReport.batteryStatus;
+          accessory.hasChangedFlag = true;
         }
       }
       historyEntries[accessory] = fillLocationHistory(reports, accessory);
@@ -152,8 +164,15 @@ class AccessoryRegistry extends ChangeNotifier {
       }
       historyEntriesAsJson[key.id] = filtered;
     }
+    //find all accessories not in list (inactive or single item refresh)
+    accessories
+        .where((a) => !historyEntriesAsJson.keys.toList().contains(a.id))
+        .forEach((a) {
+      historyEntriesAsJson[a.id] = a.locationHistory;
+    });
+
     var historyJson = jsonEncode(historyEntriesAsJson);
-    _storage.write(key: historStorageKey, value: historyJson);
+    _storage.write(key: historyStorageKey, value: historyJson);
   }
 
   /// Stores the user's accessories in persistent storage.
@@ -202,6 +221,7 @@ class AccessoryRegistry extends ChangeNotifier {
       var currHash = reports[i].hash;
       if (!accessory.containsHash(currHash)) {
         accessory.addDecryptedHash(currHash);
+        logger.d('Decrypting report $i of ${reports.length} with id $currHash');
         await reports[i].decrypt();
         decryptedReports.add(reports[i]);
       } else {
@@ -213,11 +233,11 @@ class AccessoryRegistry extends ChangeNotifier {
     logger.d(
         '${reports.length - count} reports decrypted. Decryption of $count reports skipped, because they are already fetched and decrypted.');
     //All hashes, that are not in the reports anymore can be deleted, because they are out of time
-    accessory.clearHashesNotInList(hashes);
-//Sort by date
+    accessory.removeOldHashes();
+    //Sort by date
     decryptedReports.sort((a, b) {
-      var aDate = a.timestamp ?? a.published!;
-      var bDate = b.timestamp ?? b.published!;
+      var aDate = a.timestamp ?? DateTime(1970);
+      var bDate = b.timestamp ?? DateTime(1970);
       return aDate.compareTo(bDate);
     });
 
@@ -225,12 +245,20 @@ class AccessoryRegistry extends ChangeNotifier {
     if (decryptedReports.isNotEmpty) {
       var lastReport = decryptedReports[decryptedReports.length - 1];
       var oldTs = accessory.datePublished;
-      var latestReportTS = lastReport.timestamp ?? lastReport.published;
-      if (oldTs == null || oldTs.isBefore(latestReportTS!)) {
+      var latestReportTS =
+          lastReport.timestamp ?? lastReport.published ?? DateTime(1971);
+
+      if (oldTs == null || oldTs.isBefore(latestReportTS)) {
         //only an actualization if oldTS is not set or is older than the latest of the new ones
         accessory.lastLocation =
             LatLng(lastReport.latitude!, lastReport.longitude!);
         accessory.datePublished = latestReportTS;
+
+        //Update alway battery status
+        accessory.lastBatteryStatus = lastReport.batteryStatus;
+
+        accessory.hasChangedFlag = true;
+
         notifyListeners(); //redraw the UI, if the timestamp has changed
       }
     }
@@ -238,9 +266,7 @@ class AccessoryRegistry extends ChangeNotifier {
 //add to history in correct order
     for (var i = 0; i < decryptedReports.length; i++) {
       FindMyLocationReport report = decryptedReports[i];
-      if (report.longitude!.abs() <= 180 &&
-          report.latitude!.abs() <= 90 &&
-          report.accuracy! < 100) {
+      if (report.longitude!.abs() <= 180 && report.latitude!.abs() <= 90) {
         accessory.addLocationHistoryEntry(report);
       } else {
         logger.d(
@@ -271,5 +297,37 @@ class AccessoryRegistry extends ChangeNotifier {
     for (int index in indicesToRemove.reversed) {
       loadedAccessories.removeAt(index);
     }
+  }
+
+  void deleteData(Accessory accessory) {
+    accessory.lastBatteryStatus = null;
+    accessory.lastLocation = null;
+    accessory.hashesWithTS.clear();
+    accessory.datePublished = DateTime(1970);
+    accessory.place = Future.value(null);
+    accessory.locationHistory.clear();
+    _removeHistoryEntry(accessory);
+    _storeAccessories();
+    notifyListeners();
+  }
+
+  Future<void> _removeHistoryEntry(Accessory accessoryToRemove) async {
+    String? history = await _storage.read(key: historyStorageKey);
+    if (history == null || history.isEmpty) {
+      return;
+    }
+    Map<String, dynamic> historyMap = jsonDecode(history);
+
+    historyMap.remove(accessoryToRemove.id);
+
+    await _storage.write(key: historyStorageKey, value: jsonEncode(historyMap));
+  }
+
+  void saveOrderUpdates(List<Accessory> newOrder) {
+    final Map<Accessory, int> positionMap = {
+      for (int i = 0; i < newOrder.length; i++) newOrder[i]: i,
+    };
+    _accessories.sort((a, b) => positionMap[a]!.compareTo(positionMap[b]!));
+    _storeAccessories();
   }
 }

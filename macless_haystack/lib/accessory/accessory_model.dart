@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:macless_haystack/accessory/accessory_battery.dart';
 import 'package:macless_haystack/accessory/accessory_icon_model.dart';
 import 'package:macless_haystack/findMy/find_my_controller.dart';
 import 'package:macless_haystack/location/location_model.dart';
@@ -47,15 +50,6 @@ class Accessory {
   /// An identifier for the private key stored separately in the key store.
   String hashedPublicKey;
 
-  /// If the accessory uses rolling keys.
-  bool usesDerivation;
-
-  // Parameters for rolling keys (only relevant is usesDerivation == true)
-  String? symmetricKey;
-  double? lastDerivationTimestamp;
-  int? updateInterval;
-  String? oldestRelevantSymmetricKey;
-
   /// The display name of the accessory.
   String name;
   List<String> additionalKeys;
@@ -69,10 +63,6 @@ class Accessory {
   /// If the accessory is active.
   bool isActive;
 
-  /// If the accessory is already deployed
-  /// (and could therefore send locations).
-  bool isDeployed;
-
   /// The timestamp of the last known location
   /// (null if no location known).
   DateTime? datePublished;
@@ -81,14 +71,20 @@ class Accessory {
   /// (null if no location known).
   LatLng? _lastLocation;
 
+  /// The last known battery status
+  /// (null if battery data not found)
+  AccessoryBatteryStatus? lastBatteryStatus;
+
   /// A list of known locations over time.
   List<Pair<dynamic, dynamic>> locationHistory = [];
-  Set<String> hashes = {};
+  Map<String, dynamic> hashesWithTS = {};
 
   /// Stores address information about the current location.
   Future<Placemark?> place = Future.value(null);
 
   LocationModel locationModel = LocationModel();
+
+  bool hasChangedFlag = false;
 
   /// Creates an accessory with the given properties.
   Accessory(
@@ -96,17 +92,14 @@ class Accessory {
       required this.name,
       required this.hashedPublicKey,
       required this.datePublished,
-      this.isActive = false,
-      this.isDeployed = false,
+      this.isActive = true,
       LatLng? lastLocation,
       String icon = 'mappin',
       this.color = Colors.grey,
-      this.usesDerivation = false,
-      this.symmetricKey,
-      this.lastDerivationTimestamp,
-      this.updateInterval,
-      this.oldestRelevantSymmetricKey,
-      required this.additionalKeys})
+      required this.additionalKeys,
+      required this.hashesWithTS,
+      required this.lastBatteryStatus,
+      required this.locationHistory})
       : _icon = icon,
         _lastLocation = lastLocation,
         super() {
@@ -129,27 +122,23 @@ class Accessory {
         color: color,
         icon: _icon,
         isActive: isActive,
-        isDeployed: isDeployed,
         lastLocation: lastLocation,
-        usesDerivation: usesDerivation,
-        symmetricKey: symmetricKey,
-        lastDerivationTimestamp: lastDerivationTimestamp,
-        updateInterval: updateInterval,
-        oldestRelevantSymmetricKey: oldestRelevantSymmetricKey,
-        additionalKeys: additionalKeys);
+        hashesWithTS: hashesWithTS,
+        additionalKeys: additionalKeys,
+        locationHistory: locationHistory,
+        lastBatteryStatus: lastBatteryStatus);
   }
 
   /// Updates the properties of this accessor with the new values of the [newAccessory].
   void update(Accessory newAccessory) {
-    datePublished = newAccessory.datePublished;
     id = newAccessory.id;
     name = newAccessory.name;
     hashedPublicKey = newAccessory.hashedPublicKey;
     color = newAccessory.color;
     _icon = newAccessory._icon;
     isActive = newAccessory.isActive;
-    isDeployed = newAccessory.isDeployed;
-    lastLocation = newAccessory.lastLocation;
+    hashesWithTS = newAccessory.hashesWithTS;
+    locationHistory = newAccessory.locationHistory;
     additionalKeys = newAccessory.additionalKeys;
   }
 
@@ -165,8 +154,6 @@ class Accessory {
       place = locationModel.getAddress(_lastLocation!);
     }
   }
-
-
 
   /// The display icon of the accessory.
   IconData get icon {
@@ -203,15 +190,16 @@ class Accessory {
         _lastLocation = json['latitude'] != null && json['longitude'] != null
             ? LatLng(json['latitude'].toDouble(), json['longitude'].toDouble())
             : null,
-        isActive = json['isActive'],
-        isDeployed = json['isDeployed'],
+        /*isDeployed is only for migration an can be removed in the future*/
+        isActive = json['isDeployed'] ?? json['isActive'],
         _icon = json['icon'],
-        color = Color(int.parse(json['color'], radix: 16)),
-        usesDerivation = json['usesDerivation'] ?? false,
-        symmetricKey = json['symmetricKey'],
-        lastDerivationTimestamp = json['lastDerivationTimestamp'],
-        updateInterval = json['updateInterval'],
-        oldestRelevantSymmetricKey = json['oldestRelevantSymmetricKey'],
+        color = Color(int.parse(json['color'].substring(0, 8), radix: 16)),
+        lastBatteryStatus = json['lastBatteryStatus'] != null
+            ? AccessoryBatteryStatus.values.byName(json['lastBatteryStatus'])
+            : null,
+        hashesWithTS = json['hashesWithTS'] != null
+            ? jsonDecode(json['hashesWithTS']) as Map<String, dynamic>
+            : <String, dynamic>{},
         additionalKeys =
             json['additionalKeys']?.cast<String>() ?? List.empty() {
     _init();
@@ -234,15 +222,13 @@ class Accessory {
         'latitude': _lastLocation?.latitude,
         'longitude': _lastLocation?.longitude,
         'isActive': isActive,
-        'isDeployed': isDeployed,
         'icon': _icon,
-        'color': color.toString().split('(0x')[1].split(')')[0],
-        'usesDerivation': usesDerivation,
-        'symmetricKey': symmetricKey,
-        'lastDerivationTimestamp': lastDerivationTimestamp,
-        'updateInterval': updateInterval,
-        'oldestRelevantSymmetricKey': oldestRelevantSymmetricKey,
+        'color': color.value.toRadixString(16).padLeft(8, '0'),
+        'hashesWithTS': jsonEncode(hashesWithTS),
         'additionalKeys': additionalKeys,
+        ...lastBatteryStatus != null
+            ? {'lastBatteryStatus': lastBatteryStatus!.name}
+            : {}
       };
 
   /// Returns the Base64 encoded hash of the advertisement key
@@ -281,6 +267,7 @@ class Accessory {
     var reportDate = report.timestamp ?? report.published!;
     logger.d(
         'Adding report with timestamp $reportDate and ${report.longitude} - ${report.latitude}');
+
     Pair? closest;
     //Find the closest history report by time
     for (int i = 0; i < locationHistory.length; i++) {
@@ -290,7 +277,6 @@ class Accessory {
           reportDate.isAtSameMomentAs(currentPair.end) ||
           (reportDate.isAfter(locationHistory[0].start) &&
               reportDate.isBefore(locationHistory[0].end))) {
-        //new element is after latest history entry, so break directly
         closest = currentPair;
         break;
       }
@@ -325,14 +311,31 @@ class Accessory {
         } else {
           logger.d('Date not changed, because is before current date.');
         }
-      } else {
+      } else if (!reportDate.isAtSameMomentAs(closest.start) &&
+          !reportDate.isAtSameMomentAs(closest.end)) {
         logger.d('Adding new one, because closest is too far away');
         //not like before, so add new one
         Pair<LatLng, DateTime> pair = Pair(
             LatLng(report.latitude!, report.longitude!),
             reportDate,
             reportDate);
+        //add the new one
         locationHistory.add(pair);
+        if (reportDate.isAfter(closest.start) &&
+            reportDate.isBefore(closest.end)) {
+          logger.d(
+              'Splitting closest, because new entry is in between with other location.');
+          //add the closest entry again with the end time only
+          locationHistory.add(Pair(
+              LatLng(closest.location.latitude, closest.location.longitude),
+              closest.end,
+              closest.end));
+          //change the existing closest entry end date to the former start date
+          closest.end = closest.start;
+        }
+      } else {
+        logger.w(
+            'New entry at $reportDate (Lon: ${report.location.longitude}, Lat: ${report.location.latitude}) will be skipped, because we have already an entry at other location. (Lon: ${closest.location.longitude}, Lat: ${closest.location.latitude})');
       }
     } else {
       logger.d('Closest not found. Adding to list.');
@@ -357,16 +360,37 @@ class Accessory {
   }
 
   void addDecryptedHash(String? hash) {
-    if (hash != null) {
-      hashes.add(hash);
+    if (hash != null && hash.length >= 10) {
+      hashesWithTS[hash.substring(hash.length - 10)] =
+          DateTime.now().millisecondsSinceEpoch;
     }
   }
 
   bool containsHash(String? hash) {
-    return hashes.contains(hash);
+    if (hash == null || hash.length < 10) {
+      return false;
+    }
+
+    return hashesWithTS.containsKey(hash.substring(hash.length - 10));
   }
 
-  void clearHashesNotInList(Set<String> hashesInReports) {
-    hashes.removeWhere((element) => !hashesInReports.contains(element));
+  void removeOldHashes() {
+    hashesWithTS.removeWhere((key, value) {
+      int sevenDaysAgo =
+          DateTime.now().millisecondsSinceEpoch - (7 * 24 * 60 * 60 * 1000);
+      return value < sevenDaysAgo;
+    });
+  }
+
+  void clearLocationHistory() {
+    locationHistory.clear();
+  }
+
+  List<Pair<dynamic, dynamic>> getSortedLocationHistory() {
+    locationHistory.sort((a, b) {
+      return a.start.compareTo(b.start);
+    });
+
+    return locationHistory;
   }
 }

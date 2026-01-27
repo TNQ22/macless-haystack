@@ -1,23 +1,21 @@
+
+import 'package:universal_io/io.dart';
+
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:macless_haystack/accessory/accessory_icon.dart';
 import 'package:macless_haystack/accessory/accessory_model.dart';
 import 'package:intl/intl.dart';
 
-class AccessoryListItem extends StatelessWidget {
-  /// The accessory to display the information for.
+import 'accessory_battery.dart';
+
+class AccessoryListItem extends StatefulWidget {
   final Accessory accessory;
-  /// A trailing distance information widget.
   final Widget? distance;
-  /// Address information about the accessories location.
   final Placemark? herePlace;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
-  /// Displays the location of an accessory as a concise list item.
-  /// 
-  /// Shows the icon and name of the accessory, as well as the current
-  /// location and distance to the user's location (if known; `distance != null`)
   const AccessoryListItem({
     super.key,
     required this.accessory,
@@ -28,48 +26,98 @@ class AccessoryListItem extends StatelessWidget {
   });
 
   @override
+  AccessoryListItemState createState() => AccessoryListItemState();
+}
+
+class AccessoryListItemState extends State<AccessoryListItem> {
+  Color _tileColor = Colors.transparent;
+
+  @override
   Widget build(BuildContext context) {
+    var hasChanged = widget.accessory.hasChangedFlag;
+    if (hasChanged) {
+      _tileColor = widget.accessory.color.withAlpha(50);
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          widget.accessory.hasChangedFlag = false;
+          setState(() {
+            _tileColor = Colors.transparent;
+          });
+        }
+      });
+    }
     return FutureBuilder<Placemark?>(
-      future: accessory.place,
+      future: widget.accessory.place,
       builder: (BuildContext context, AsyncSnapshot<Placemark?> snapshot) {
-        // Format the location of the accessory. Use in this order:
-        //   * Address if known
-        //   * Coordinates (latitude & longitude) if known
-        //   * `Unknown` if unknown
-        String locationString = accessory.lastLocation != null
-          ? '${accessory.lastLocation!.latitude.toStringAsFixed(4)}, ${accessory.lastLocation!.longitude.toStringAsFixed(4)}'
-          : 'Unknown';
+        String locationString = widget.accessory.lastLocation != null
+            ? '${widget.accessory.lastLocation!.latitude.toStringAsFixed(4)}, ${widget.accessory.lastLocation!.longitude.toStringAsFixed(4)}'
+            : 'Unknown';
+
         if (snapshot.hasData && snapshot.data != null) {
           Placemark place = snapshot.data!;
           locationString = '${place.locality}, ${place.administrativeArea}';
-          if (herePlace != null && herePlace!.country != place.country) {
+          if (widget.herePlace != null &&
+              widget.herePlace!.country != place.country) {
             locationString = '${place.locality}, ${place.country}';
           }
         }
         // Format published date in a human readable way
-        String? dateString = accessory.datePublished != null
-          ? ' · ${DateFormat('dd.MM.yyyy kk:mm').format(accessory.datePublished!)}'
-          : '';
-        return ListTile(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          title: Text(
-            accessory.name + (accessory.isDeployed ? '' : ' (not deployed)'),
-            style: TextStyle(
-              color: accessory.isDeployed
-                ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(context).disabledColor,
-            ),
-          ),
-          subtitle: Text(locationString + dateString),
-          trailing: distance,
-          dense: true,
-          leading: AccessoryIcon(
-            icon: accessory.icon,
-            color: accessory.color,
-          ),
-        );
+        String? dateString = widget.accessory.datePublished != null &&
+                widget.accessory.datePublished != DateTime(1970)
+            ? '\n${DateFormat.yMMMd(Platform.localeName).format(widget.accessory.datePublished!)} ${DateFormat.jm(Platform.localeName).format(widget.accessory.datePublished!)}'
+            : '';
+
+        return AnimatedContainer(
+            duration: const Duration(milliseconds: 300), // Sanfter Übergang
+            color: _tileColor,
+            child: ListTile(
+              onTap: widget.onTap,
+              title: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.accessory.name +
+                        (widget.accessory.isActive ? '' : ' (inactive)'),
+                    style: TextStyle(
+                      color: widget.accessory.isActive
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Theme.of(context).disabledColor,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  _buildIcon(),
+                ],
+              ),
+              subtitle: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: Text(locationString + dateString),
+              ),
+              trailing: widget.distance,
+              dense: true,
+              leading: GestureDetector(
+                onLongPress: widget.onLongPress,
+                child: AccessoryIcon(
+                  icon: widget.accessory.icon,
+                  color: widget.accessory.color,
+                ),
+              ),
+            ));
       },
     );
+  }
+
+  Widget _buildIcon() {
+    switch (widget.accessory.lastBatteryStatus) {
+      case AccessoryBatteryStatus.ok:
+        return const Icon(Icons.battery_full, color: Colors.green, size: 15);
+      case AccessoryBatteryStatus.medium:
+        return const Icon(Icons.battery_3_bar, color: Colors.orange, size: 15);
+      case AccessoryBatteryStatus.low:
+        return const Icon(Icons.battery_1_bar, color: Colors.red, size: 15);
+      case AccessoryBatteryStatus.criticalLow:
+        return const Icon(Icons.battery_alert, color: Colors.red, size: 15);
+      default:
+        return const SizedBox(width: 15);
+    }
   }
 }

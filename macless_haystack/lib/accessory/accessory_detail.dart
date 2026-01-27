@@ -24,8 +24,8 @@ class AccessoryDetail extends StatefulWidget {
     return _AccessoryDetailState();
   }
 
-  // @override
-  // _AccessoryDetailState createState() => _AccessoryDetailState();
+// @override
+// _AccessoryDetailState createState() => _AccessoryDetailState();
 }
 
 class _AccessoryDetailState extends State<AccessoryDetail> {
@@ -84,7 +84,7 @@ class _AccessoryDetailState extends State<AccessoryDetail> {
                                 setState(() {
                                   newAccessory.setIcon(selectedIcon);
                                 });
-                                if (mounted) {
+                                if (context.mounted) {
                                   // Show color selection only when icon is selected
                                   Color? selectedColor =
                                       await AccessoryColorSelector
@@ -98,7 +98,10 @@ class _AccessoryDetailState extends State<AccessoryDetail> {
                                 }
                               }
                             },
-                            icon: const Icon(Icons.edit),
+                            icon: Icon(
+                              Icons.edit,
+                              color: Theme.of(context).primaryColor,
+                            ),
                           ),
                         ),
                       ),
@@ -120,15 +123,6 @@ class _AccessoryDetailState extends State<AccessoryDetail> {
                 onChanged: (checked) {
                   setState(() {
                     newAccessory.isActive = checked;
-                  });
-                },
-              ),
-              SwitchListTile(
-                value: newAccessory.isDeployed,
-                title: const Text('Is Deployed'),
-                onChanged: (checked) {
-                  setState(() {
-                    newAccessory.isDeployed = checked;
                   });
                 },
               ),
@@ -157,10 +151,30 @@ class _AccessoryDetailState extends State<AccessoryDetail> {
                 ),
               ),
               ListTile(
+                title: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  onPressed: () {
+                    // Update accessory with changed values
+                    var accessoryRegistry =
+                        Provider.of<AccessoryRegistry>(context, listen: false);
+                    accessoryRegistry.deleteData(widget.accessory);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('All current and historical data deleted'),
+                      ),
+                    );
+                  },
+                  child: const Text('Reset Accessory'),
+                ),
+              ),
+              ListTile(
                 title: ElevatedButton(
                   style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-                      (Set<MaterialState> states) {
+                    backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+                      (Set<WidgetState> states) {
                         return Theme.of(context).colorScheme.error;
                       },
                     ),
