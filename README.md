@@ -56,7 +56,7 @@ In this section, you will find a step-by-step guide on how to set up your own Ma
 
 ## Server setup
 ### NEW:
-Create compose file:
+Create and run compose file:
 ```bash
 services:
   anisette-v3-server:
