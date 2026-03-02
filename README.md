@@ -55,7 +55,7 @@ In this section, you will find a step-by-step guide on how to set up your own Ma
 <details><summary>3. Server setup</summary>
 
 ## Server setup
-NEW:
+### NEW:
 Create compose file:
 ```bash
 services:
@@ -84,7 +84,7 @@ volumes:
   anisette-v3_data:
     name: anisette-v3_data
 ```
-
+Sau đó chạy lệnh:
 ```bash
 docker stop macless-haystack
 docker start -ai macless-haystack
@@ -94,7 +94,7 @@ Làm theo hướng dẫn sau đó chạy lại compose hoặc chạy lệnh:
 docker start macless-haystack
 ```
 
-OLD:
+### OLD:
 1. Create a new docker network
 
 ```bash
