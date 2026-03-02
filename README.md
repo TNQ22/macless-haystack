@@ -55,7 +55,46 @@ In this section, you will find a step-by-step guide on how to set up your own Ma
 <details><summary>3. Server setup</summary>
 
 ## Server setup
+NEW:
+Create compose file:
+```bash
+services:
+  anisette-v3-server:
+    container_name: anisette
+    image: dadoum/anisette-v3-server
+    restart: unless-stopped
+    #ports:
+      #- 6969:6969
+    volumes:
+      - anisette-v3_data:/home/Alcoholic/.config/anisette-v3
+  macless-haystack:
+    container_name: macless-haystack
+    image: christld/macless-haystack
+    restart: unless-stopped
+    depends_on: 
+      - anisette-v3-server
+    #user: 1001:100
+    stdin_open: true
+    tty: true
+    ports:
+      - 6176:6176
+    volumes:
+      - CHANGE_TO_COMPOSE_DATA_PATH/macless-haystack:/app/endpoint/data
+volumes:
+  anisette-v3_data:
+    name: anisette-v3_data
+```
 
+```bash
+docker stop macless-haystack
+docker start -ai macless-haystack
+```
+Làm theo hướng dẫn sau đó chạy lại compose hoặc chạy lệnh:
+```bash
+docker start macless-haystack
+```
+
+OLD:
 1. Create a new docker network
 
 ```bash
