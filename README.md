@@ -94,7 +94,7 @@ Làm theo hướng dẫn sau đó chạy lại compose hoặc chạy lệnh:
 docker start macless-haystack
 ```
 
-### Xóa và chạy lại từ đầu:
+### Nếu bạn muốn xóa mọi thử để cài lại từ đầu:
 
 ```bash
 docker rm -f macless-haystack
