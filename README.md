@@ -84,6 +84,45 @@ volumes:
   anisette-v3_data:
     name: anisette-v3_data
 ```
+<details><summary>Or with Caddy</summary>
+
+```bash
+services:
+  anisette-v3-server:
+    container_name: anisette
+    image: dadoum/anisette-v3-server
+    restart: unless-stopped
+    #ports:
+    #- 6969:6969
+    volumes:
+      - anisette-v3_data:/home/Alcoholic/.config/anisette-v3
+    networks:
+      - caddy_net
+  macless-haystack:
+    container_name: macless-haystack
+    image: christld/macless-haystack
+    restart: unless-stopped
+    depends_on:
+      - anisette-v3-server
+    #user: 1001:100
+    stdin_open: true
+    tty: true
+    #ports:
+      #- 6176:6176
+    volumes:
+      - ./data:/app/endpoint/data
+    networks:
+      - caddy_net
+volumes:
+  anisette-v3_data:
+    name: anisette-v3_data
+networks:
+  caddy_net:
+    name: caddy_net
+    external: true
+```
+</details>
+
 Sau đó chạy lệnh:
 ```bash
 docker stop macless-haystack
