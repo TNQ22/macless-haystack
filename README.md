@@ -132,7 +132,7 @@ Làm theo hướng dẫn sau đó chạy lại compose hoặc chạy lệnh:
 ```bash
 docker start macless-haystack
 ```
-
+PS: Thiết bị mới thêm vào iCloud sẽ được chèn xuống dưới, xóa thiết bị khỏi iCloud thì lúc làm mới dữ liệu sẽ báo lỗi "Could not file location report.."
 ### Nếu bạn muốn xóa mọi thử để cài lại từ đầu:
 
 ```bash
