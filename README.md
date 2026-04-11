@@ -94,6 +94,20 @@ Làm theo hướng dẫn sau đó chạy lại compose hoặc chạy lệnh:
 docker start macless-haystack
 ```
 
+### Xóa và chạy lại từ đầu:
+
+```bash
+docker rm -f macless-haystack
+docker rmi christld/macless-haystack
+docker volume rm mh_data
+docker rm -f anisette
+docker rmi dadoum/anisette-v3-server
+docker volume rm anisette-v3_data
+docker volume prune
+docker network rm mh-network
+docker network prune
+```
+
 ### OLD:
 1. Create a new docker network
 
